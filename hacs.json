@@ -1,0 +1,8 @@
+{
+  "name": "Window Guardian Card",
+  "filename": "window-guardian-card.js",
+  "render_readme": true,
+  "country": ["IT", "EN"],
+  "homeassistant": "2024.8.0",
+  "hide_default_branch": false
+}
