@@ -1,5 +1,6 @@
 # Window Guardian Card 🛡️🇮🇹
 Una card Lovelace per Home Assistant che mostra quante porte/finestre sono aperte e, opzionalmente, l’elenco dettagliato di quali sensori sono aperti/chiusi.   Pensata per utilizzare solo componenti nativi (`ha-card`, `ha-icon`) e integrarsi con i temi light/dark di Home Assistant.
+<img width="1013" height="438" alt="Screenshot 2" src="https://github.com/user-attachments/assets/32a28379-a3bc-47bf-8057-1ba13336004b" />
 ### Requisiti
 - Home Assistant 2024.8.0 o superiore.  
 - HACS installato per una gestione semplice degli aggiornamenti (opzionale ma raccomandato).  
