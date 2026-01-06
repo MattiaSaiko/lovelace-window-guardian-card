@@ -46,8 +46,12 @@ title: Stato aperture
 entities:
   - entity: binary_sensor.finestra_camera
     name: Camera
+    icon: mdi:window-open-variant
+    color: red
   - entity: binary_sensor.finestra_bagno
     name: Bagno
+    icon: mdi:window-open-variant
+    color: '#ff9800'
   - entity: binary_sensor.porta_ingresso
     name: Porta
 compact: false             # true = versione compatta/minimale
@@ -64,5 +68,3 @@ tap_action: more-info      # azione al click sulla card (es. more-info)
 hold_action: navigate      # azione al long-press (opzionale)
 hold_action_path: /lovelace/security
 ```
-
-
