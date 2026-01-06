@@ -1,11 +1,9 @@
 class WindowGuardianCard extends HTMLElement {
   setConfig(config) {
     let entities = config.entities || [];
-
     if (!Array.isArray(entities)) {
       entities = [entities];
     }
-
     if (entities.length === 0) {
       throw new Error("Devi definire almeno una entità in 'entities'");
     }
@@ -67,76 +65,81 @@ class WindowGuardianCard extends HTMLElement {
     }
   }
 
-  _getBatteryLevel(entity, config) {
-    if (config.battery_entity) {
-      const batteryEntity = this._hass.states[config.battery_entity];
-      if (batteryEntity && batteryEntity.state !== 'unknown' && batteryEntity.state !== 'unavailable') {
-        return parseInt(batteryEntity.state);
+  _getBatteryLevel(entity, cfg) {
+    if (cfg.battery_entity) {
+      const be = this._hass.states[cfg.battery_entity];
+      if (be && be.state !== "unknown" && be.state !== "unavailable") {
+        return parseInt(be.state);
       }
     }
 
     if (entity.attributes.battery_level !== undefined) {
       return parseInt(entity.attributes.battery_level);
     }
-
     if (entity.attributes.battery !== undefined) {
       return parseInt(entity.attributes.battery);
     }
 
-    const baseName = entity.entity_id.replace('binary_sensor.', '').replace('_contact', '').replace('_door', '').replace('_window', '');
-    
-    const possibleBatteryIds = [
+    const baseName = entity.entity_id
+      .replace("binary_sensor.", "")
+      .replace("_contact", "")
+      .replace("_door", "")
+      .replace("_window", "");
+
+    const candidates = [
       `sensor.${baseName}_battery`,
       `sensor.${baseName}_battery_level`,
-      entity.entity_id.replace('binary_sensor.', 'sensor.').replace('_contact', '_battery'),
-      entity.entity_id.replace('binary_sensor.', 'sensor.').replace('_door', '_battery'),
-      entity.entity_id.replace('binary_sensor.', 'sensor.').replace('_window', '_battery'),
+      entity.entity_id
+        .replace("binary_sensor.", "sensor.")
+        .replace("_contact", "_battery"),
+      entity.entity_id
+        .replace("binary_sensor.", "sensor.")
+        .replace("_door", "_battery"),
+      entity.entity_id
+        .replace("binary_sensor.", "sensor.")
+        .replace("_window", "_battery"),
     ];
 
-    for (const batteryId of possibleBatteryIds) {
-      const batteryEntity = this._hass.states[batteryId];
-      if (batteryEntity && batteryEntity.state !== 'unknown' && batteryEntity.state !== 'unavailable') {
-        const level = parseInt(batteryEntity.state);
-        if (!isNaN(level) && level >= 0 && level <= 100) {
-          return level;
-        }
+    for (const id of candidates) {
+      const be = this._hass.states[id];
+      if (be && be.state !== "unknown" && be.state !== "unavailable") {
+        const level = parseInt(be.state);
+        if (!isNaN(level) && level >= 0 && level <= 100) return level;
       }
     }
 
     if (entity.attributes.device_id || entity.device_id) {
       const deviceId = entity.attributes.device_id || entity.device_id;
-      
-      for (const entityId in this._hass.states) {
-        const e = this._hass.states[entityId];
-        
-        if ((e.attributes.device_id === deviceId || e.device_id === deviceId) && 
-            entityId.includes('battery') && 
-            !entityId.includes('battery_low')) {
-          
-          if (e.state !== 'unknown' && e.state !== 'unavailable') {
+      for (const id in this._hass.states) {
+        const e = this._hass.states[id];
+        if (
+          (e.attributes.device_id === deviceId || e.device_id === deviceId) &&
+          id.includes("battery") &&
+          !id.includes("battery_low")
+        ) {
+          if (e.state !== "unknown" && e.state !== "unavailable") {
             const level = parseInt(e.state);
-            if (!isNaN(level) && level >= 0 && level <= 100) {
-              return level;
-            }
+            if (!isNaN(level) && level >= 0 && level <= 100) return level;
           }
         }
       }
     }
 
-    const entityIdPattern = entity.entity_id.replace('binary_sensor.', '').split('_')[0];
-    
-    for (const entityId in this._hass.states) {
-      if (entityId.includes(entityIdPattern) && 
-          entityId.includes('battery') && 
-          !entityId.includes('battery_low') &&
-          entityId.startsWith('sensor.')) {
-        
-        const e = this._hass.states[entityId];
-        if (e.state !== 'unknown' && e.state !== 'unavailable') {
+    const pattern = entity.entity_id
+      .replace("binary_sensor.", "")
+      .split("_")[0];
+
+    for (const id in this._hass.states) {
+      if (
+        id.startsWith("sensor.") &&
+        id.includes(pattern) &&
+        id.includes("battery") &&
+        !id.includes("battery_low")
+      ) {
+        const e = this._hass.states[id];
+        if (e.state !== "unknown" && e.state !== "unavailable") {
           const level = parseInt(e.state);
-          if (!isNaN(level) && level >= 0 && level <= 100) {
-            return level;
-          }
+          if (!isNaN(level) && level >= 0 && level <= 100) return level;
         }
       }
     }
@@ -146,17 +149,31 @@ class WindowGuardianCard extends HTMLElement {
 
   _getBatteryIcon(level) {
     if (level === null) return null;
-    
-    if (level > 80) return { icon: "mdi:battery", color: "var(--success-color, #4caf50)" };
-    if (level > 50) return { icon: "mdi:battery-60", color: "var(--success-color, #4caf50)" };
-    if (level > 30) return { icon: "mdi:battery-50", color: "var(--warning-color, #ff9800)" };
-    if (level > 15) return { icon: "mdi:battery-20", color: "var(--warning-color, #ff9800)" };
-    return { icon: "mdi:battery-alert", color: "var(--error-color, #e53935)" };
+    if (level > 80)
+      return { icon: "mdi:battery", color: "var(--success-color, #4caf50)" };
+    if (level > 50)
+      return {
+        icon: "mdi:battery-60",
+        color: "var(--success-color, #4caf50)",
+      };
+    if (level > 30)
+      return {
+        icon: "mdi:battery-50",
+        color: "var(--warning-color, #ff9800)",
+      };
+    if (level > 15)
+      return {
+        icon: "mdi:battery-20",
+        color: "var(--warning-color, #ff9800)",
+      };
+    return {
+      icon: "mdi:battery-alert",
+      color: "var(--error-color, #e53935)",
+    };
   }
 
   _formatLastChanged(timestamp) {
     if (!timestamp) return "";
-    
     const now = new Date();
     const changed = new Date(timestamp);
     const diffMs = now - changed;
@@ -169,8 +186,24 @@ class WindowGuardianCard extends HTMLElement {
     if (diffHours < 24) return `${diffHours}h fa`;
     if (diffDays === 1) return "Ieri";
     if (diffDays < 7) return `${diffDays}gg fa`;
-    
-    return changed.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
+    return changed.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+  }
+
+  _getEntityIcon(entity, cfg) {
+    if (cfg.icon) return cfg.icon;
+    const dc = entity.attributes.device_class;
+    if (dc === "door") return "mdi:door";
+    if (dc === "window") return "mdi:window-closed-variant";
+    if (dc === "opening") return "mdi:rectangle-outline";
+    return "mdi:square-rounded";
+  }
+
+  _getEntityIconColor(entity, cfg, defaultColor) {
+    if (cfg.icon_color) return cfg.icon_color;
+    return defaultColor;
   }
 
   _render() {
@@ -195,16 +228,11 @@ class WindowGuardianCard extends HTMLElement {
 
     const openCount = openEntities.length;
     const allClosed = openCount === 0;
-
     const attention = openCount >= config.attention_threshold;
 
     const card = document.createElement("ha-card");
-    if (attention) {
-      card.classList.add("attention");
-    }
-    if (config.compact) {
-      card.classList.add("compact");
-    }
+    if (attention) card.classList.add("attention");
+    if (config.compact) card.classList.add("compact");
     card.addEventListener("click", () => this._handleTap());
 
     card.innerHTML = `
@@ -269,9 +297,6 @@ class WindowGuardianCard extends HTMLElement {
         }
         ha-icon {
           --mdc-icon-size: 24px;
-          color: ${allClosed
-            ? "var(--success-color, var(--primary-color))"
-            : "var(--error-color, #e53935)"};
         }
         @keyframes pulse {
           0% { box-shadow: 0 0 0 0 rgba(229,57,53,0.5); }
@@ -360,7 +385,11 @@ class WindowGuardianCard extends HTMLElement {
       <div class="header">
         <div class="title">${config.title}</div>
         <div class="icon-wrapper ${attention ? "attention" : ""}">
-          <ha-icon icon="${allClosed ? "mdi:shield-check" : "mdi:door-open"}"></ha-icon>
+          <ha-icon style="color: ${
+            allClosed
+              ? "var(--success-color, var(--primary-color))"
+              : "var(--error-color, #e53935)"
+          }" icon="${allClosed ? "mdi:shield-check" : "mdi:door-open"}"></ha-icon>
         </div>
       </div>
       <div class="main">
@@ -377,31 +406,59 @@ class WindowGuardianCard extends HTMLElement {
           </div>
         </div>
       </div>
-      ${config.compact || !config.show_list ? "" : `
+      ${
+        config.compact || !config.show_list
+          ? ""
+          : `
         <div class="list">
           ${openEntities
             .map((p) => {
-              const batteryLevel = config.show_battery ? this._getBatteryLevel(p.state, p.cfg) : null;
-              const batteryInfo = batteryLevel !== null ? this._getBatteryIcon(batteryLevel) : null;
-              const lastChanged = config.show_last_changed ? this._formatLastChanged(p.state.last_changed) : null;
-              
+              const icon = this._getEntityIcon(p.state, p.cfg);
+              const iconColor = this._getEntityIconColor(
+                p.state,
+                p.cfg,
+                "var(--error-color, #e53935)"
+              );
+              const batteryLevel = config.show_battery
+                ? this._getBatteryLevel(p.state, p.cfg)
+                : null;
+              const batteryInfo =
+                batteryLevel !== null
+                  ? this._getBatteryIcon(batteryLevel)
+                  : null;
+              const lastChanged = config.show_last_changed
+                ? this._formatLastChanged(p.state.last_changed)
+                : null;
+
               return `
             <div class="entity-row">
               <div class="entity-left">
-                <ha-icon icon="${this._getIconFor(p.state)}"></ha-icon>
+                <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
                 <div class="entity-info">
-                  <div class="entity-name">${p.cfg.name || p.state.attributes.friendly_name || p.state.entity_id}</div>
-                  ${(batteryInfo || lastChanged) ? `
+                  <div class="entity-name">${
+                    p.cfg.name ||
+                    p.state.attributes.friendly_name ||
+                    p.state.entity_id
+                  }</div>
+                  ${
+                    batteryInfo || lastChanged
+                      ? `
                     <div class="entity-details">
-                      ${batteryInfo ? `
+                      ${
+                        batteryInfo
+                          ? `
                         <div class="battery-info">
                           <ha-icon class="battery-icon" icon="${batteryInfo.icon}" style="color: ${batteryInfo.color};"></ha-icon>
                           <span>${batteryLevel}%</span>
                         </div>
-                      ` : ''}
-                      ${lastChanged ? `<span>${lastChanged}</span>` : ''}
+                      `
+                          : ""
+                      }
+                      ${lastChanged ? `<span>${lastChanged}</span>` : ""}
                     </div>
-                  ` : ''}
+                  `
+                      : ""
+                  }
                 </div>
               </div>
               <div class="entity-right">
@@ -415,27 +472,52 @@ class WindowGuardianCard extends HTMLElement {
             config.show_closed
               ? closedEntities
                   .map((p) => {
-                    const batteryLevel = config.show_battery ? this._getBatteryLevel(p.state, p.cfg) : null;
-                    const batteryInfo = batteryLevel !== null ? this._getBatteryIcon(batteryLevel) : null;
-                    const lastChanged = config.show_last_changed ? this._formatLastChanged(p.state.last_changed) : null;
-                    
+                    const icon = this._getEntityIcon(p.state, p.cfg);
+                    const iconColor = this._getEntityIconColor(
+                      p.state,
+                      p.cfg,
+                      "var(--success-color, #4caf50)"
+                    );
+                    const batteryLevel = config.show_battery
+                      ? this._getBatteryLevel(p.state, p.cfg)
+                      : null;
+                    const batteryInfo =
+                      batteryLevel !== null
+                        ? this._getBatteryIcon(batteryLevel)
+                        : null;
+                    const lastChanged = config.show_last_changed
+                      ? this._formatLastChanged(p.state.last_changed)
+                      : null;
+
                     return `
             <div class="entity-row">
               <div class="entity-left">
-                <ha-icon icon="${this._getIconFor(p.state)}"></ha-icon>
+                <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
                 <div class="entity-info">
-                  <div class="entity-name">${p.cfg.name || p.state.attributes.friendly_name || p.state.entity_id}</div>
-                  ${(batteryInfo || lastChanged) ? `
+                  <div class="entity-name">${
+                    p.cfg.name ||
+                    p.state.attributes.friendly_name ||
+                    p.state.entity_id
+                  }</div>
+                  ${
+                    batteryInfo || lastChanged
+                      ? `
                     <div class="entity-details">
-                      ${batteryInfo ? `
+                      ${
+                        batteryInfo
+                          ? `
                         <div class="battery-info">
                           <ha-icon class="battery-icon" icon="${batteryInfo.icon}" style="color: ${batteryInfo.color};"></ha-icon>
                           <span>${batteryLevel}%</span>
                         </div>
-                      ` : ''}
-                      ${lastChanged ? `<span>${lastChanged}</span>` : ''}
+                      `
+                          : ""
+                      }
+                      ${lastChanged ? `<span>${lastChanged}</span>` : ""}
                     </div>
-                  ` : ''}
+                  `
+                      : ""
+                  }
                 </div>
               </div>
               <div class="entity-right">
@@ -448,61 +530,28 @@ class WindowGuardianCard extends HTMLElement {
               : ""
           }
         </div>
-      `}
+      `
+      }
     `;
 
     this.shadowRoot.innerHTML = "";
     this.shadowRoot.appendChild(card);
   }
 
-  _getIconFor(entity) {
-    const dc = entity.attributes.device_class;
-    if (dc === "door") return "mdi:door";
-    if (dc === "window") return "mdi:window-closed-variant";
-    if (dc === "opening") return "mdi:rectangle-outline";
-    return "mdi:square-rounded";
-  }
-
   static getConfigForm() {
     const SCHEMA = [
-      {
-        name: "title",
-        selector: { text: {} },
-      },
+      { name: "title", selector: { text: {} } },
       {
         name: "entities",
         required: true,
-        selector: {
-          entity: {
-            domain: "binary_sensor",
-            multiple: true,
-          },
-        },
+        selector: { entity: { domain: "binary_sensor", multiple: true } },
       },
-      {
-        name: "compact",
-        selector: { boolean: {} },
-      },
-      {
-        name: "show_list",
-        selector: { boolean: {} },
-      },
-      {
-        name: "show_closed",
-        selector: { boolean: {} },
-      },
-      {
-        name: "show_battery",
-        selector: { boolean: {} },
-      },
-      {
-        name: "show_last_changed",
-        selector: { boolean: {} },
-      },
-      {
-        name: "attention_threshold",
-        selector: { number: { min: 1, max: 10 } },
-      },
+      { name: "compact", selector: { boolean: {} } },
+      { name: "show_list", selector: { boolean: {} } },
+      { name: "show_closed", selector: { boolean: {} } },
+      { name: "show_battery", selector: { boolean: {} } },
+      { name: "show_last_changed", selector: { boolean: {} } },
+      { name: "attention_threshold", selector: { number: { min: 1, max: 10 } } },
     ];
 
     const assertConfig = (config) => {
@@ -511,7 +560,7 @@ class WindowGuardianCard extends HTMLElement {
       }
     };
 
-    const computeLabel = (schema, _localize) => {
+    const computeLabel = (schema) => {
       const labels = {
         title: "Title",
         entities: "Entities",
@@ -525,11 +574,7 @@ class WindowGuardianCard extends HTMLElement {
       return labels[schema.name] || schema.name;
     };
 
-    return {
-      schema: SCHEMA,
-      assertConfig,
-      computeLabel,
-    };
+    return { schema: SCHEMA, assertConfig, computeLabel };
   }
 
   static getStubConfig() {
@@ -550,5 +595,6 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "window-guardian-card",
   name: "Window Guardian Card",
-  description: "Mostra quante porte/finestre sono aperte e quali.",
+  description:
+    "Mostra quante porte/finestre sono aperte, quali, batteria e ultimo cambio, con icone personalizzabili.",
 });
