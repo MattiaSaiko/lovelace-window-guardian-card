@@ -4,9 +4,14 @@ class WindowGuardianCard extends HTMLElement {
     if (!Array.isArray(entities)) {
       entities = [entities];
     }
-    if (entities.length === 0) {
-      throw new Error("Devi definire almeno una entità in 'entities'");
-    }
+
+    entities = entities
+      .filter(e => {
+        if (typeof e === 'string') return true;
+        if (e && typeof e === 'object' && e.entity) return true;
+        return false;
+      })
+      .map(e => typeof e === 'string' ? { entity: e } : e);
 
     this._config = {
       title: config.title ?? "Aperture",
@@ -18,10 +23,9 @@ class WindowGuardianCard extends HTMLElement {
       show_last_changed: config.show_last_changed ?? false,
       device_classes: config.device_classes ?? ["door", "window", "opening"],
       tap_action: config.tap_action ?? "more-info",
-      hold_action: config.hold_action ?? null,
-      hold_action_path: config.hold_action_path ?? null,
-      ...config,
-      entities,
+      temperature_threshold: config.temperature_threshold ?? null,
+      temperature_entity: config.temperature_entity ?? null,
+      entities: entities,
     };
 
     if (!this.shadowRoot) {
@@ -36,18 +40,54 @@ class WindowGuardianCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config.compact ? 1 : 4;
+    return this._config.compact ? 1 : 2;
+  }
+
+  _isColdOutside() {
+    if (!this._config.temperature_entity || !this._config.temperature_threshold) {
+      return false;
+    }
+    
+    const tempEntity = this._hass.states[this._config.temperature_entity];
+    if (!tempEntity || tempEntity.state === 'unknown' || tempEntity.state === 'unavailable') {
+      return false;
+    }
+    
+    const currentTemp = parseFloat(tempEntity.state);
+    return !isNaN(currentTemp) && currentTemp <= this._config.temperature_threshold;
+  }
+
+  _getCurrentTemperature() {
+    if (!this._config.temperature_entity) return null;
+    
+    const tempEntity = this._hass.states[this._config.temperature_entity];
+    if (!tempEntity || tempEntity.state === 'unknown' || tempEntity.state === 'unavailable') {
+      return null;
+    }
+    
+    return parseFloat(tempEntity.state);
+  }
+
+  _getOpenCount() {
+    if (!this._config.entities || this._config.entities.length === 0) return 0;
+
+    const entities = this._config.entities
+      .map((e) => ({ cfg: e, state: this._hass.states[e.entity] }))
+      .filter((p) => p.state);
+
+    const filtered = entities.filter((p) =>
+      this._config.device_classes.includes(p.state.attributes.device_class)
+    );
+
+    return filtered.filter((p) => p.state.state === "on").length;
   }
 
   _handleTap() {
     const action = this._config.tap_action;
-    if (!action || !this._hass) return;
+    if (!action || !this._hass || !this._config.entities || this._config.entities.length === 0) return;
 
     if (action === "more-info") {
-      const first =
-        typeof this._config.entities[0] === "string"
-          ? this._config.entities[0]
-          : this._config.entities[0].entity;
+      const first = this._config.entities[0].entity;
       const event = new Event("hass-more-info", {
         bubbles: true,
         composed: true,
@@ -89,15 +129,9 @@ class WindowGuardianCard extends HTMLElement {
     const candidates = [
       `sensor.${baseName}_battery`,
       `sensor.${baseName}_battery_level`,
-      entity.entity_id
-        .replace("binary_sensor.", "sensor.")
-        .replace("_contact", "_battery"),
-      entity.entity_id
-        .replace("binary_sensor.", "sensor.")
-        .replace("_door", "_battery"),
-      entity.entity_id
-        .replace("binary_sensor.", "sensor.")
-        .replace("_window", "_battery"),
+      entity.entity_id.replace("binary_sensor.", "sensor.").replace("_contact", "_battery"),
+      entity.entity_id.replace("binary_sensor.", "sensor.").replace("_door", "_battery"),
+      entity.entity_id.replace("binary_sensor.", "sensor.").replace("_window", "_battery"),
     ];
 
     for (const id of candidates) {
@@ -125,9 +159,7 @@ class WindowGuardianCard extends HTMLElement {
       }
     }
 
-    const pattern = entity.entity_id
-      .replace("binary_sensor.", "")
-      .split("_")[0];
+    const pattern = entity.entity_id.replace("binary_sensor.", "").split("_")[0];
 
     for (const id in this._hass.states) {
       if (
@@ -149,27 +181,11 @@ class WindowGuardianCard extends HTMLElement {
 
   _getBatteryIcon(level) {
     if (level === null) return null;
-    if (level > 80)
-      return { icon: "mdi:battery", color: "var(--success-color, #4caf50)" };
-    if (level > 50)
-      return {
-        icon: "mdi:battery-60",
-        color: "var(--success-color, #4caf50)",
-      };
-    if (level > 30)
-      return {
-        icon: "mdi:battery-50",
-        color: "var(--warning-color, #ff9800)",
-      };
-    if (level > 15)
-      return {
-        icon: "mdi:battery-20",
-        color: "var(--warning-color, #ff9800)",
-      };
-    return {
-      icon: "mdi:battery-alert",
-      color: "var(--error-color, #e53935)",
-    };
+    if (level > 80) return { icon: "mdi:battery", color: "var(--success-color, #4caf50)" };
+    if (level > 50) return { icon: "mdi:battery-60", color: "var(--success-color, #4caf50)" };
+    if (level > 30) return { icon: "mdi:battery-50", color: "var(--warning-color, #ff9800)" };
+    if (level > 15) return { icon: "mdi:battery-20", color: "var(--warning-color, #ff9800)" };
+    return { icon: "mdi:battery-alert", color: "var(--error-color, #e53935)" };
   }
 
   _formatLastChanged(timestamp) {
@@ -186,10 +202,7 @@ class WindowGuardianCard extends HTMLElement {
     if (diffHours < 24) return `${diffHours}h fa`;
     if (diffDays === 1) return "Ieri";
     if (diffDays < 7) return `${diffDays}gg fa`;
-    return changed.toLocaleDateString("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
-    });
+    return changed.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
   }
 
   _getEntityIcon(entity, cfg) {
@@ -201,9 +214,15 @@ class WindowGuardianCard extends HTMLElement {
     return "mdi:square-rounded";
   }
 
-  _getEntityIconColor(entity, cfg, defaultColor) {
+  _getEntityIconColor(entity, cfg, isOpen) {
     if (cfg.icon_color) return cfg.icon_color;
-    return defaultColor;
+    return isOpen ? "var(--error-color, #e53935)" : "var(--success-color, #4caf50)";
+  }
+
+  _getEntityName(entity, cfg) {
+    if (cfg.name) return cfg.name;
+    if (entity.attributes.friendly_name) return entity.attributes.friendly_name;
+    return entity.entity_id;
   }
 
   _render() {
@@ -211,11 +230,12 @@ class WindowGuardianCard extends HTMLElement {
     const config = this._config;
     if (!hass || !config) return;
 
-    const entityConfigs = config.entities.map((item) =>
-      typeof item === "string" ? { entity: item } : item
-    );
+    if (!config.entities || config.entities.length === 0) {
+      this._renderEmpty();
+      return;
+    }
 
-    const entities = entityConfigs
+    const entities = config.entities
       .map((e) => ({ cfg: e, state: hass.states[e.entity] }))
       .filter((p) => p.state);
 
@@ -229,10 +249,15 @@ class WindowGuardianCard extends HTMLElement {
     const openCount = openEntities.length;
     const allClosed = openCount === 0;
     const attention = openCount >= config.attention_threshold;
+    
+    const isColdOutside = this._isColdOutside();
+    const currentTemp = this._getCurrentTemperature();
+    const hasTemperatureAlert = openCount > 0 && isColdOutside;
 
     const card = document.createElement("ha-card");
-    if (attention) card.classList.add("attention");
+    if (attention || hasTemperatureAlert) card.classList.add("attention");
     if (config.compact) card.classList.add("compact");
+    if (hasTemperatureAlert) card.classList.add("temperature-alert");
     card.addEventListener("click", () => this._handleTap());
 
     card.innerHTML = `
@@ -243,6 +268,8 @@ class WindowGuardianCard extends HTMLElement {
           background: var(--ha-card-background, var(--card-background-color));
           color: var(--primary-text-color);
           transition: box-shadow 0.3s ease, transform 0.2s ease;
+          position: relative;
+          overflow: hidden;
         }
         ha-card:hover {
           box-shadow: 0 4px 12px rgba(0,0,0,0.2);
@@ -252,24 +279,43 @@ class WindowGuardianCard extends HTMLElement {
           border: 1px solid var(--error-color, #e53935);
           box-shadow: 0 0 12px rgba(229,57,53,0.5);
         }
+        ha-card.temperature-alert {
+          border: 2px solid var(--warning-color, #ff9800);
+          box-shadow: 0 0 20px rgba(255,152,0,0.7);
+          animation: temperature-pulse 2s infinite;
+        }
+        @keyframes temperature-pulse {
+          0%, 100% { box-shadow: 0 0 20px rgba(255,152,0,0.7); }
+          50% { box-shadow: 0 0 30px rgba(255,152,0,1); }
+        }
         ha-card.compact {
           padding: 8px 10px;
         }
-        ha-card.compact .header {
-          margin-bottom: 0;
+        ha-card.compact .header { margin-bottom: 0; }
+        ha-card.compact .main { margin-top: 2px; margin-bottom: 0; }
+        ha-card.compact .count { font-size: 1.6rem; }
+        ha-card.compact .subtitle { display: none; }
+        ha-card.compact .list { display: none; }
+        ha-card.compact .temperature-banner { display: none; }
+        .temperature-banner {
+          background: linear-gradient(90deg, rgba(255,152,0,0.1) 0%, rgba(255,152,0,0.2) 50%, rgba(255,152,0,0.1) 100%);
+          padding: 8px 12px;
+          margin: -16px -16px 12px -16px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 0.85rem;
+          font-weight: 500;
+          color: var(--warning-color, #ff9800);
+          border-bottom: 1px solid var(--warning-color, #ff9800);
         }
-        ha-card.compact .main {
-          margin-top: 2px;
-          margin-bottom: 0;
+        .temperature-banner ha-icon {
+          --mdc-icon-size: 20px;
+          animation: blink 1s infinite;
         }
-        ha-card.compact .count {
-          font-size: 1.6rem;
-        }
-        ha-card.compact .subtitle {
-          display: none;
-        }
-        ha-card.compact .list {
-          display: none;
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
         }
         .header {
           display: flex;
@@ -277,10 +323,7 @@ class WindowGuardianCard extends HTMLElement {
           justify-content: space-between;
           margin-bottom: 8px;
         }
-        .title {
-          font-size: 1rem;
-          font-weight: 500;
-        }
+        .title { font-size: 1rem; font-weight: 500; }
         .icon-wrapper {
           display: flex;
           align-items: center;
@@ -295,9 +338,8 @@ class WindowGuardianCard extends HTMLElement {
           background: rgba(229,57,53,0.1);
           animation: pulse 1.5s infinite;
         }
-        ha-icon {
-          --mdc-icon-size: 24px;
-        }
+        .icon-wrapper.temperature-alert { background: rgba(255,152,0,0.2); }
+        ha-icon { --mdc-icon-size: 24px; }
         @keyframes pulse {
           0% { box-shadow: 0 0 0 0 rgba(229,57,53,0.5); }
           70% { box-shadow: 0 0 0 10px rgba(229,57,53,0); }
@@ -309,64 +351,69 @@ class WindowGuardianCard extends HTMLElement {
           justify-content: space-between;
           margin-bottom: ${config.compact ? "0" : "8px"};
         }
-        .count {
-          font-size: 2rem;
-          font-weight: 600;
-        }
-        .subtitle {
-          font-size: 0.9rem;
-          opacity: 0.7;
-        }
-        .list {
-          margin-top: 8px;
-        }
+        .count { font-size: 2rem; font-weight: 600; }
+        .subtitle { font-size: 0.9rem; opacity: 0.7; }
+        .list { margin-top: 8px; }
         .entity-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 6px 0;
+          padding: 8px 0;
           font-size: 0.9rem;
           border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.05));
         }
-        .entity-row:last-child {
-          border-bottom: none;
-        }
+        .entity-row:last-child { border-bottom: none; }
         .entity-left {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
           flex: 1;
+          min-width: 0;
+        }
+        .entity-icon {
+          flex-shrink: 0;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         .entity-info {
           display: flex;
           flex-direction: column;
-          gap: 2px;
+          gap: 3px;
+          min-width: 0;
+          flex: 1;
         }
         .entity-name {
           font-weight: 500;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .entity-details {
           display: flex;
-          gap: 8px;
+          gap: 10px;
           font-size: 0.75rem;
           opacity: 0.6;
           align-items: center;
+          flex-wrap: wrap;
         }
         .battery-info {
           display: flex;
           align-items: center;
           gap: 3px;
+          white-space: nowrap;
         }
-        .battery-icon {
-          --mdc-icon-size: 14px;
-        }
+        .battery-icon { --mdc-icon-size: 14px; }
         .entity-right {
           display: flex;
           align-items: center;
           gap: 8px;
+          flex-shrink: 0;
         }
         .chip {
-          padding: 3px 10px;
+          padding: 4px 12px;
           border-radius: 12px;
           font-size: 0.75rem;
           font-weight: 500;
@@ -382,219 +429,601 @@ class WindowGuardianCard extends HTMLElement {
           color: var(--success-color, #4caf50);
         }
       </style>
+      
+      ${hasTemperatureAlert ? `
+        <div class="temperature-banner">
+          <ha-icon icon="mdi:thermometer-alert"></ha-icon>
+          <span>🌡️ Apertura con temperatura esterna: ${currentTemp}°C</span>
+        </div>
+      ` : ''}
+      
       <div class="header">
         <div class="title">${config.title}</div>
-        <div class="icon-wrapper ${attention ? "attention" : ""}">
+        <div class="icon-wrapper ${attention || hasTemperatureAlert ? "attention" : ""} ${hasTemperatureAlert ? "temperature-alert" : ""}">
           <ha-icon style="color: ${
-            allClosed
-              ? "var(--success-color, var(--primary-color))"
-              : "var(--error-color, #e53935)"
-          }" icon="${allClosed ? "mdi:shield-check" : "mdi:door-open"}"></ha-icon>
+            hasTemperatureAlert ? "var(--warning-color, #ff9800)" :
+            allClosed ? "var(--success-color, var(--primary-color))" :
+            "var(--error-color, #e53935)"
+          }" icon="${
+            hasTemperatureAlert ? "mdi:thermometer-alert" :
+            allClosed ? "mdi:shield-check" : "mdi:door-open"
+          }"></ha-icon>
         </div>
       </div>
+      
       <div class="main">
         <div>
           <div class="count">${openCount}</div>
           <div class="subtitle">
-            ${
-              allClosed
-                ? "Tutte chiuse"
-                : openCount === 1
-                ? "1 apertura rilevata"
-                : `${openCount} aperture rilevate`
-            }
+            ${hasTemperatureAlert ? "⚠️ Protezione antigelo" :
+              allClosed ? "Tutte chiuse" :
+              openCount === 1 ? "1 apertura rilevata" :
+              `${openCount} aperture rilevate`}
           </div>
         </div>
       </div>
-      ${
-        config.compact || !config.show_list
-          ? ""
-          : `
+      
+      ${config.compact || !config.show_list ? "" : `
         <div class="list">
-          ${openEntities
-            .map((p) => {
-              const icon = this._getEntityIcon(p.state, p.cfg);
-              const iconColor = this._getEntityIconColor(
-                p.state,
-                p.cfg,
-                "var(--error-color, #e53935)"
-              );
-              const batteryLevel = config.show_battery
-                ? this._getBatteryLevel(p.state, p.cfg)
-                : null;
-              const batteryInfo =
-                batteryLevel !== null
-                  ? this._getBatteryIcon(batteryLevel)
-                  : null;
-              const lastChanged = config.show_last_changed
-                ? this._formatLastChanged(p.state.last_changed)
-                : null;
+          ${openEntities.map((p) => {
+            const isOpen = true;
+            const icon = this._getEntityIcon(p.state, p.cfg);
+            const iconColor = this._getEntityIconColor(p.state, p.cfg, isOpen);
+            const name = this._getEntityName(p.state, p.cfg);
+            const batteryLevel = config.show_battery ? this._getBatteryLevel(p.state, p.cfg) : null;
+            const batteryInfo = batteryLevel !== null ? this._getBatteryIcon(batteryLevel) : null;
+            const lastChanged = config.show_last_changed ? this._formatLastChanged(p.state.last_changed) : null;
 
-              return `
+            return `
             <div class="entity-row">
               <div class="entity-left">
-                <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
+                <div class="entity-icon">
+                  <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
+                </div>
                 <div class="entity-info">
-                  <div class="entity-name">${
-                    p.cfg.name ||
-                    p.state.attributes.friendly_name ||
-                    p.state.entity_id
-                  }</div>
-                  ${
-                    batteryInfo || lastChanged
-                      ? `
+                  <div class="entity-name">${name}</div>
+                  ${batteryInfo || lastChanged ? `
                     <div class="entity-details">
-                      ${
-                        batteryInfo
-                          ? `
+                      ${batteryInfo ? `
                         <div class="battery-info">
                           <ha-icon class="battery-icon" icon="${batteryInfo.icon}" style="color: ${batteryInfo.color};"></ha-icon>
                           <span>${batteryLevel}%</span>
                         </div>
-                      `
-                          : ""
-                      }
+                      ` : ""}
                       ${lastChanged ? `<span>${lastChanged}</span>` : ""}
                     </div>
-                  `
-                      : ""
-                  }
+                  ` : ""}
                 </div>
               </div>
               <div class="entity-right">
                 <div class="chip open">Aperto</div>
               </div>
             </div>
-          `;
-            })
-            .join("")}
-          ${
-            config.show_closed
-              ? closedEntities
-                  .map((p) => {
-                    const icon = this._getEntityIcon(p.state, p.cfg);
-                    const iconColor = this._getEntityIconColor(
-                      p.state,
-                      p.cfg,
-                      "var(--success-color, #4caf50)"
-                    );
-                    const batteryLevel = config.show_battery
-                      ? this._getBatteryLevel(p.state, p.cfg)
-                      : null;
-                    const batteryInfo =
-                      batteryLevel !== null
-                        ? this._getBatteryIcon(batteryLevel)
-                        : null;
-                    const lastChanged = config.show_last_changed
-                      ? this._formatLastChanged(p.state.last_changed)
-                      : null;
+          `}).join("")}
+          ${config.show_closed ? closedEntities.map((p) => {
+            const isOpen = false;
+            const icon = this._getEntityIcon(p.state, p.cfg);
+            const iconColor = this._getEntityIconColor(p.state, p.cfg, isOpen);
+            const name = this._getEntityName(p.state, p.cfg);
+            const batteryLevel = config.show_battery ? this._getBatteryLevel(p.state, p.cfg) : null;
+            const batteryInfo = batteryLevel !== null ? this._getBatteryIcon(batteryLevel) : null;
+            const lastChanged = config.show_last_changed ? this._formatLastChanged(p.state.last_changed) : null;
 
-                    return `
+            return `
             <div class="entity-row">
               <div class="entity-left">
-                <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
+                <div class="entity-icon">
+                  <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
+                </div>
                 <div class="entity-info">
-                  <div class="entity-name">${
-                    p.cfg.name ||
-                    p.state.attributes.friendly_name ||
-                    p.state.entity_id
-                  }</div>
-                  ${
-                    batteryInfo || lastChanged
-                      ? `
+                  <div class="entity-name">${name}</div>
+                  ${batteryInfo || lastChanged ? `
                     <div class="entity-details">
-                      ${
-                        batteryInfo
-                          ? `
+                      ${batteryInfo ? `
                         <div class="battery-info">
                           <ha-icon class="battery-icon" icon="${batteryInfo.icon}" style="color: ${batteryInfo.color};"></ha-icon>
                           <span>${batteryLevel}%</span>
                         </div>
-                      `
-                          : ""
-                      }
+                      ` : ""}
                       ${lastChanged ? `<span>${lastChanged}</span>` : ""}
                     </div>
-                  `
-                      : ""
-                  }
+                  ` : ""}
                 </div>
               </div>
               <div class="entity-right">
                 <div class="chip closed">Chiuso</div>
               </div>
             </div>
-          `;
-                  })
-                  .join("")
-              : ""
-          }
+          `}).join("") : ""}
         </div>
-      `
-      }
+      `}
     `;
 
     this.shadowRoot.innerHTML = "";
     this.shadowRoot.appendChild(card);
   }
 
-  static getConfigForm() {
-    const SCHEMA = [
-      { name: "title", selector: { text: {} } },
-      {
-        name: "entities",
-        required: true,
-        selector: { entity: { domain: "binary_sensor", multiple: true } },
-      },
-      { name: "compact", selector: { boolean: {} } },
-      { name: "show_list", selector: { boolean: {} } },
-      { name: "show_closed", selector: { boolean: {} } },
-      { name: "show_battery", selector: { boolean: {} } },
-      { name: "show_last_changed", selector: { boolean: {} } },
-      { name: "attention_threshold", selector: { number: { min: 1, max: 10 } } },
-    ];
+  _renderEmpty() {
+    const card = document.createElement("ha-card");
+    card.innerHTML = `
+      <style>
+        ha-card {
+          padding: 24px;
+          text-align: center;
+          background: var(--ha-card-background, var(--card-background-color));
+          color: var(--primary-text-color);
+        }
+        .empty-state {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
+        }
+        .empty-icon {
+          width: 80px;
+          height: 80px;
+          background: var(--secondary-background-color);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        ha-icon {
+          --mdc-icon-size: 48px;
+          color: var(--disabled-text-color);
+        }
+        .empty-title {
+          font-size: 1.2rem;
+          font-weight: 500;
+          margin: 0;
+        }
+        .empty-subtitle {
+          font-size: 0.9rem;
+          opacity: 0.7;
+          margin: 0;
+        }
+      </style>
+      <div class="empty-state">
+        <div class="empty-icon">
+          <ha-icon icon="mdi:window-open"></ha-icon>
+        </div>
+        <h3 class="empty-title">Window Guardian</h3>
+        <p class="empty-subtitle">Seleziona entità per iniziare</p>
+      </div>
+    `;
+    this.shadowRoot.innerHTML = "";
+    this.shadowRoot.appendChild(card);
+  }
 
-    const assertConfig = (config) => {
-      if (!config.entities) {
-        throw new Error('Devi definire almeno una entità in "entities"');
-      }
-    };
+  static hasAdvancedConfig(config) {
+    if (!config.entities || !Array.isArray(config.entities)) return false;
+    
+    return config.entities.some(e => {
+      if (typeof e === 'string') return false;
+      return e.name || e.icon || e.icon_color || e.battery_entity;
+    });
+  }
 
-    const computeLabel = (schema) => {
-      const labels = {
-        title: "Title",
-        entities: "Entities",
-        compact: "Compact mode",
-        show_list: "Show list",
-        show_closed: "Show closed entities",
-        show_battery: "Show battery level",
-        show_last_changed: "Show last changed",
-        attention_threshold: "Attention threshold",
-      };
-      return labels[schema.name] || schema.name;
-    };
-
-    return { schema: SCHEMA, assertConfig, computeLabel };
+  static getConfigElement() {
+    return document.createElement("window-guardian-card-editor");
   }
 
   static getStubConfig() {
     return {
+      type: "custom:window-guardian-card",
       title: "Aperture",
-      entities: ["binary_sensor.finestra_soggiorno"],
+      entities: [],
       compact: false,
       show_list: true,
       show_battery: false,
       show_last_changed: false,
+      show_closed: false,
+      attention_threshold: 1,
+      temperature_threshold: null,
+      temperature_entity: null,
     };
   }
 }
 
+class WindowGuardianCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = { ...WindowGuardianCard.getStubConfig(), ...config };
+    this._hasAdvancedConfig = WindowGuardianCard.hasAdvancedConfig(config);
+    
+    if (this._rendered) {
+      this._updateValues();
+    } else if (this._hass) {
+      this._render();
+      this._rendered = true;
+    }
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    
+    if (this._config && !this._rendered) {
+      this._render();
+      this._rendered = true;
+    }
+  }
+
+  _updateValues() {
+    if (!this._hasAdvancedConfig) {
+      const title = this.querySelector('#title');
+      if (title && title.value !== this._config.title) {
+        title.value = this._config.title || '';
+      }
+
+      const attentionThreshold = this.querySelector('#attention_threshold');
+      if (attentionThreshold && attentionThreshold.value !== String(this._config.attention_threshold)) {
+        attentionThreshold.value = this._config.attention_threshold || 1;
+      }
+
+      const tempThreshold = this.querySelector('#temperature_threshold');
+      if (tempThreshold && tempThreshold.value !== String(this._config.temperature_threshold || '')) {
+        tempThreshold.value = this._config.temperature_threshold || '';
+      }
+    }
+  }
+
+  _render() {
+    if (!this._hass || !this._config) return;
+
+    if (this._hasAdvancedConfig) {
+      this._renderYamlNotice();
+      return;
+    }
+
+    this.innerHTML = `
+      <style>
+        .card-config {
+          padding: 16px 0;
+        }
+        ha-formfield {
+          display: block;
+          padding: 8px 0;
+        }
+        ha-textfield, ha-entity-picker {
+          display: block;
+          width: 100%;
+          margin-top: 4px;
+        }
+        .label {
+          display: block;
+          font-weight: 500;
+          margin-bottom: 4px;
+          font-size: 14px;
+        }
+        .helper {
+          font-size: 12px;
+          opacity: 0.7;
+          margin-top: 4px;
+        }
+        .entity-row {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 8px;
+          align-items: center;
+        }
+      </style>
+      <div class="card-config">
+        <div style="padding: 8px 0;">
+          <label class="label">Titolo</label>
+          <ha-textfield
+            id="title"
+            .value="${this._config.title || ''}"
+          ></ha-textfield>
+        </div>
+
+        <div style="padding: 8px 0;">
+          <label class="label">Entità (binary_sensor)</label>
+          <div id="entities-container"></div>
+          <div class="helper">Sensori porte/finestre da monitorare</div>
+        </div>
+
+        <ha-formfield label="Modalità compatta">
+          <ha-switch id="compact" .checked="${this._config.compact}"></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Mostra lista aperture">
+          <ha-switch id="show_list" .checked="${this._config.show_list}"></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Mostra anche chiuse">
+          <ha-switch id="show_closed" .checked="${this._config.show_closed}"></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Mostra livello batteria">
+          <ha-switch id="show_battery" .checked="${this._config.show_battery}"></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Mostra ultimo cambio stato">
+          <ha-switch id="show_last_changed" .checked="${this._config.show_last_changed}"></ha-switch>
+        </ha-formfield>
+
+        <div style="padding: 8px 0;">
+          <label class="label">Soglia attenzione</label>
+          <ha-textfield
+            id="attention_threshold"
+            type="number"
+            min="1"
+            .value="${this._config.attention_threshold || 1}"
+          ></ha-textfield>
+          <div class="helper">Numero aperture per attivare l'allerta</div>
+        </div>
+
+        <div style="padding: 8px 0;">
+          <label class="label">Sensore temperatura esterna</label>
+          <ha-entity-picker
+            id="temperature_entity"
+            .hass="${this._hass}"
+            .value="${this._config.temperature_entity || ''}"
+            .includeDomains="${['sensor']}"
+            allow-custom-entity
+          ></ha-entity-picker>
+          <div class="helper">Per protezione antigelo</div>
+        </div>
+
+        <div style="padding: 8px 0;">
+          <label class="label">Soglia temperatura (°C)</label>
+          <ha-textfield
+            id="temperature_threshold"
+            type="number"
+            step="0.5"
+            .value="${this._config.temperature_threshold || ''}"
+          ></ha-textfield>
+          <div class="helper">Alert se aperto sotto questa temperatura</div>
+        </div>
+      </div>
+    `;
+
+    this._renderEntities();
+    this._attachListeners();
+  }
+
+  _renderEntities() {
+    const container = this.querySelector('#entities-container');
+    if (!container || !this._hass) return;
+
+    const entities = this._config.entities || [];
+    
+    container.innerHTML = '';
+    
+    entities.forEach((entity, index) => {
+      this._addEntityRow(container, entity, index);
+    });
+    
+    const addButton = document.createElement('mwc-button');
+    addButton.id = 'add-entity';
+    addButton.style.marginTop = '8px';
+    addButton.innerHTML = '<ha-icon icon="mdi:plus" slot="icon"></ha-icon>Aggiungi entità';
+    
+    addButton.addEventListener('click', () => {
+      this._addNewEntity();
+    });
+    
+    container.appendChild(addButton);
+  }
+
+  _addEntityRow(container, entity, index) {
+    const entityId = typeof entity === 'string' ? entity : entity.entity;
+    
+    const row = document.createElement('div');
+    row.className = 'entity-row';
+    row.setAttribute('data-index', index);
+    
+    const picker = document.createElement('ha-entity-picker');
+    picker.className = 'entity-picker';
+    picker.setAttribute('data-index', index);
+    picker.hass = this._hass;
+    picker.value = entityId;
+    picker.includeDomains = ['binary_sensor'];
+    picker.setAttribute('allow-custom-entity', '');
+    picker.style.flex = '1';
+    
+    picker.addEventListener('value-changed', (e) => {
+      const idx = parseInt(e.target.dataset.index);
+      const newEntities = [...(this._config.entities || [])];
+      newEntities[idx] = e.detail.value;
+      this._config = { ...this._config, entities: newEntities };
+      this._configChanged();
+    });
+    
+    const removeBtn = document.createElement('ha-icon-button');
+    removeBtn.className = 'remove-entity';
+    removeBtn.setAttribute('data-index', index);
+    removeBtn.innerHTML = '<ha-icon icon="mdi:delete"></ha-icon>';
+    
+    removeBtn.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.closest('.remove-entity').dataset.index);
+      this._removeEntity(idx);
+    });
+    
+    row.appendChild(picker);
+    row.appendChild(removeBtn);
+    
+    const addButton = container.querySelector('#add-entity');
+    if (addButton) {
+      container.insertBefore(row, addButton);
+    } else {
+      container.appendChild(row);
+    }
+  }
+
+  _addNewEntity() {
+    const container = this.querySelector('#entities-container');
+    if (!container) return;
+    
+    const newEntities = [...(this._config.entities || []), ''];
+    this._config = { ...this._config, entities: newEntities };
+    
+    const newIndex = newEntities.length - 1;
+    this._addEntityRow(container, '', newIndex);
+    
+    this._configChanged();
+  }
+
+  _removeEntity(index) {
+    const container = this.querySelector('#entities-container');
+    if (!container) return;
+    
+    const rows = container.querySelectorAll('.entity-row');
+    if (rows[index]) {
+      rows[index].remove();
+    }
+    
+    const newEntities = [...(this._config.entities || [])];
+    newEntities.splice(index, 1);
+    this._config = { ...this._config, entities: newEntities };
+    
+    const remainingRows = container.querySelectorAll('.entity-row');
+    remainingRows.forEach((row, idx) => {
+      row.setAttribute('data-index', idx);
+      const picker = row.querySelector('.entity-picker');
+      const removeBtn = row.querySelector('.remove-entity');
+      if (picker) picker.setAttribute('data-index', idx);
+      if (removeBtn) removeBtn.setAttribute('data-index', idx);
+    });
+    
+    this._configChanged();
+  }
+
+  _renderYamlNotice() {
+    this.innerHTML = `
+      <style>
+        .notice {
+          padding: 16px;
+          background: var(--secondary-background-color);
+          border-radius: 8px;
+          border-left: 4px solid var(--info-color);
+        }
+        .notice-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 500;
+          margin-bottom: 8px;
+        }
+        .notice-text {
+          font-size: 14px;
+          opacity: 0.8;
+          line-height: 1.5;
+        }
+      </style>
+      <div class="notice">
+        <div class="notice-title">
+          <ha-icon icon="mdi:information-outline"></ha-icon>
+          Editor visuale non supportato
+        </div>
+        <div class="notice-text">
+          L'editor visuale non è disponibile per questo tipo di elemento.
+          È ancora possibile modificare la configurazione utilizzando YAML.
+        </div>
+      </div>
+    `;
+  }
+
+  _attachListeners() {
+    const title = this.querySelector('#title');
+    if (title) {
+      title.addEventListener('blur', (e) => {
+        if (this._config.title !== e.target.value) {
+          this._config = { ...this._config, title: e.target.value };
+          this._configChanged();
+        }
+      });
+    }
+
+    const compact = this.querySelector('#compact');
+    if (compact) {
+      compact.addEventListener('change', (e) => {
+        this._config = { ...this._config, compact: e.target.checked };
+        this._configChanged();
+      });
+    }
+
+    const showList = this.querySelector('#show_list');
+    if (showList) {
+      showList.addEventListener('change', (e) => {
+        this._config = { ...this._config, show_list: e.target.checked };
+        this._configChanged();
+      });
+    }
+
+    const showClosed = this.querySelector('#show_closed');
+    if (showClosed) {
+      showClosed.addEventListener('change', (e) => {
+        this._config = { ...this._config, show_closed: e.target.checked };
+        this._configChanged();
+      });
+    }
+
+    const showBattery = this.querySelector('#show_battery');
+    if (showBattery) {
+      showBattery.addEventListener('change', (e) => {
+        this._config = { ...this._config, show_battery: e.target.checked };
+        this._configChanged();
+      });
+    }
+
+    const showLastChanged = this.querySelector('#show_last_changed');
+    if (showLastChanged) {
+      showLastChanged.addEventListener('change', (e) => {
+        this._config = { ...this._config, show_last_changed: e.target.checked };
+        this._configChanged();
+      });
+    }
+
+    const attentionThreshold = this.querySelector('#attention_threshold');
+    if (attentionThreshold) {
+      attentionThreshold.addEventListener('blur', (e) => {
+        const value = parseInt(e.target.value) || 1;
+        if (this._config.attention_threshold !== value) {
+          this._config = { ...this._config, attention_threshold: value };
+          this._configChanged();
+        }
+      });
+    }
+
+    const tempEntity = this.querySelector('#temperature_entity');
+    if (tempEntity) {
+      tempEntity.hass = this._hass;
+      tempEntity.addEventListener('value-changed', (e) => {
+        this._config = { ...this._config, temperature_entity: e.detail.value || null };
+        this._configChanged();
+      });
+    }
+
+    const tempThreshold = this.querySelector('#temperature_threshold');
+    if (tempThreshold) {
+      tempThreshold.addEventListener('blur', (e) => {
+        const value = e.target.value ? parseFloat(e.target.value) : null;
+        if (this._config.temperature_threshold !== value) {
+          this._config = { ...this._config, temperature_threshold: value };
+          this._configChanged();
+        }
+      });
+    }
+  }
+
+  _configChanged() {
+    const event = new CustomEvent('config-changed', {
+      detail: { config: this._config },
+      bubbles: true,
+      composed: true,
+    });
+    this.dispatchEvent(event);
+  }
+}
+
 customElements.define("window-guardian-card", WindowGuardianCard);
+customElements.define("window-guardian-card-editor", WindowGuardianCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "window-guardian-card",
   name: "Window Guardian Card",
-  description:
-    "Mostra quante porte/finestre sono aperte, quali, batteria e ultimo cambio, con icone personalizzabili.",
+  description: "Monitoraggio porte/finestre con protezione antigelo",
+  preview: true,
+  documentationURL: "https://github.com/MattiaSaiko/lovelace-window-guardian-card"
 });
