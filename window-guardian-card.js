@@ -1,4 +1,74 @@
 class WindowGuardianCard extends HTMLElement {
+  constructor() {
+    super();
+    this._translations = {};
+  }
+
+  async loadTranslations(lang) {
+    const langCode = lang ? lang.split('-')[0] : 'en';
+    
+    try {
+      const response = await fetch(
+        `/hacsfiles/lovelace-window-guardian-card/translations/${langCode}.json`
+      );
+      
+      if (response.ok) {
+        return await response.json();
+      }
+      
+      console.warn(`Window Guardian Card: Translation file for '${langCode}' not found, trying English fallback`);
+      
+      const fallbackResponse = await fetch(
+        `/hacsfiles/lovelace-window-guardian-card/translations/en.json`
+      );
+      
+      if (fallbackResponse.ok) {
+        return await fallbackResponse.json();
+      }
+      
+      console.error('Window Guardian Card: No translation files found');
+      return this._getEmergencyTranslations();
+      
+    } catch (error) {
+      console.error('Window Guardian Card: Error loading translations', error);
+      return this._getEmergencyTranslations();
+    }
+  }
+
+  _getEmergencyTranslations() {
+    return {
+      common: { no_entities: 'Select entities to start' },
+      card: {
+        subtitle_all_closed: 'All closed',
+        subtitle_open_singular: '1 opening detected',
+        subtitle_open_plural: 'openings detected',
+        temperature_alert: '⚠️ Frost protection',
+        temperature_banner_prefix: '🌡️ Open with outside temperature:',
+        chip_open: 'Open',
+        chip_closed: 'Closed',
+        time_now: 'Now',
+        time_minutes_ago: 'm ago',
+        time_hours_ago: 'h ago',
+        time_yesterday: 'Yesterday',
+        time_days_ago: 'd ago'
+      }
+    };
+  }
+
+  localize(key, fallback = '') {
+    if (!this._translations) return fallback;
+    const keys = key.split('.');
+    let value = this._translations;
+    for (const k of keys) {
+      if (value && value[k] !== undefined) {
+        value = value[k];
+      } else {
+        return fallback;
+      }
+    }
+    return value || fallback;
+  }
+
   setConfig(config) {
     let entities = config.entities || [];
     if (!Array.isArray(entities)) {
@@ -14,7 +84,7 @@ class WindowGuardianCard extends HTMLElement {
       .map(e => typeof e === 'string' ? { entity: e } : e);
 
     this._config = {
-      title: config.title ?? "Aperture",
+      title: config.title ?? "Openings",
       show_closed: config.show_closed ?? false,
       compact: config.compact ?? false,
       attention_threshold: config.attention_threshold ?? 1,
@@ -31,12 +101,32 @@ class WindowGuardianCard extends HTMLElement {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
+
+    if (!this._hass) {
+      this.loadTranslations('en').then(translations => {
+        this._translations = translations;
+      });
+    }
   }
 
   set hass(hass) {
+    const oldLang = this._hass?.language;
     this._hass = hass;
     if (!this._config) return;
-    this._render();
+
+    if (hass.language && hass.language !== oldLang) {
+      this.loadTranslations(hass.language).then(translations => {
+        this._translations = translations;
+        this._render();
+      });
+    } else if (!oldLang) {
+      this.loadTranslations(hass.language).then(translations => {
+        this._translations = translations;
+        this._render();
+      });
+    } else {
+      this._render();
+    }
   }
 
   getCardSize() {
@@ -197,12 +287,14 @@ class WindowGuardianCard extends HTMLElement {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return "Ora";
-    if (diffMins < 60) return `${diffMins}m fa`;
-    if (diffHours < 24) return `${diffHours}h fa`;
-    if (diffDays === 1) return "Ieri";
-    if (diffDays < 7) return `${diffDays}gg fa`;
-    return changed.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+    if (diffMins < 1) return this.localize('card.time_now', 'Now');
+    if (diffMins < 60) return `${diffMins}${this.localize('card.time_minutes_ago', 'm ago')}`;
+    if (diffHours < 24) return `${diffHours}${this.localize('card.time_hours_ago', 'h ago')}`;
+    if (diffDays === 1) return this.localize('card.time_yesterday', 'Yesterday');
+    if (diffDays < 7) return `${diffDays}${this.localize('card.time_days_ago', 'd ago')}`;
+    
+    const locale = this._hass?.language || 'en';
+    return changed.toLocaleDateString(locale, { day: "2-digit", month: "2-digit" });
   }
 
   _getEntityIcon(entity, cfg) {
@@ -259,6 +351,8 @@ class WindowGuardianCard extends HTMLElement {
     if (config.compact) card.classList.add("compact");
     if (hasTemperatureAlert) card.classList.add("temperature-alert");
     card.addEventListener("click", () => this._handleTap());
+
+    const temperatureBannerText = `${this.localize('card.temperature_banner_prefix', '🌡️ Open with outside temperature:')} ${currentTemp}°C`;
 
     card.innerHTML = `
       <style>
@@ -433,7 +527,7 @@ class WindowGuardianCard extends HTMLElement {
       ${hasTemperatureAlert ? `
         <div class="temperature-banner">
           <ha-icon icon="mdi:thermometer-alert"></ha-icon>
-          <span>🌡️ Apertura con temperatura esterna: ${currentTemp}°C</span>
+          <span>${temperatureBannerText}</span>
         </div>
       ` : ''}
       
@@ -455,10 +549,10 @@ class WindowGuardianCard extends HTMLElement {
         <div>
           <div class="count">${openCount}</div>
           <div class="subtitle">
-            ${hasTemperatureAlert ? "⚠️ Protezione antigelo" :
-              allClosed ? "Tutte chiuse" :
-              openCount === 1 ? "1 apertura rilevata" :
-              `${openCount} aperture rilevate`}
+            ${hasTemperatureAlert ? this.localize('card.temperature_alert', '⚠️ Frost protection') :
+              allClosed ? this.localize('card.subtitle_all_closed', 'All closed') :
+              openCount === 1 ? this.localize('card.subtitle_open_singular', '1 opening detected') :
+              `${openCount} ${this.localize('card.subtitle_open_plural', 'openings detected')}`}
           </div>
         </div>
       </div>
@@ -496,7 +590,7 @@ class WindowGuardianCard extends HTMLElement {
                 </div>
               </div>
               <div class="entity-right">
-                <div class="chip open">Aperto</div>
+                <div class="chip open">${this.localize('card.chip_open', 'Open')}</div>
               </div>
             </div>
           `}).join("")}
@@ -531,7 +625,7 @@ class WindowGuardianCard extends HTMLElement {
                 </div>
               </div>
               <div class="entity-right">
-                <div class="chip closed">Chiuso</div>
+                <div class="chip closed">${this.localize('card.chip_closed', 'Closed')}</div>
               </div>
             </div>
           `}).join("") : ""}
@@ -588,7 +682,7 @@ class WindowGuardianCard extends HTMLElement {
           <ha-icon icon="mdi:window-open"></ha-icon>
         </div>
         <h3 class="empty-title">Window Guardian</h3>
-        <p class="empty-subtitle">Seleziona entità per iniziare</p>
+        <p class="empty-subtitle">${this.localize('common.no_entities', 'Select entities to start')}</p>
       </div>
     `;
     this.shadowRoot.innerHTML = "";
@@ -611,7 +705,7 @@ class WindowGuardianCard extends HTMLElement {
   static getStubConfig() {
     return {
       type: "custom:window-guardian-card",
-      title: "Aperture",
+      title: "Openings",
       entities: [],
       compact: false,
       show_list: true,
@@ -708,7 +802,7 @@ class WindowGuardianCardEditor extends HTMLElement {
       </style>
       <div class="card-config">
         <div style="padding: 8px 0;">
-          <label class="label">Titolo</label>
+          <label class="label">Title</label>
           <ha-textfield
             id="title"
             .value="${this._config.title || ''}"
@@ -716,44 +810,44 @@ class WindowGuardianCardEditor extends HTMLElement {
         </div>
 
         <div style="padding: 8px 0;">
-          <label class="label">Entità (binary_sensor)</label>
+          <label class="label">Entities (binary_sensor)</label>
           <div id="entities-container"></div>
-          <div class="helper">Sensori porte/finestre da monitorare</div>
+          <div class="helper">Door/window sensors to monitor</div>
         </div>
 
-        <ha-formfield label="Modalità compatta">
+        <ha-formfield label="Compact mode">
           <ha-switch id="compact" .checked="${this._config.compact}"></ha-switch>
         </ha-formfield>
 
-        <ha-formfield label="Mostra lista aperture">
+        <ha-formfield label="Show openings list">
           <ha-switch id="show_list" .checked="${this._config.show_list}"></ha-switch>
         </ha-formfield>
 
-        <ha-formfield label="Mostra anche chiuse">
+        <ha-formfield label="Show also closed">
           <ha-switch id="show_closed" .checked="${this._config.show_closed}"></ha-switch>
         </ha-formfield>
 
-        <ha-formfield label="Mostra livello batteria">
+        <ha-formfield label="Show battery level">
           <ha-switch id="show_battery" .checked="${this._config.show_battery}"></ha-switch>
         </ha-formfield>
 
-        <ha-formfield label="Mostra ultimo cambio stato">
+        <ha-formfield label="Show last changed">
           <ha-switch id="show_last_changed" .checked="${this._config.show_last_changed}"></ha-switch>
         </ha-formfield>
 
         <div style="padding: 8px 0;">
-          <label class="label">Soglia attenzione</label>
+          <label class="label">Attention threshold</label>
           <ha-textfield
             id="attention_threshold"
             type="number"
             min="1"
             .value="${this._config.attention_threshold || 1}"
           ></ha-textfield>
-          <div class="helper">Numero aperture per attivare l'allerta</div>
+          <div class="helper">Number of openings to trigger alert</div>
         </div>
 
         <div style="padding: 8px 0;">
-          <label class="label">Sensore temperatura esterna</label>
+          <label class="label">Outside temperature sensor</label>
           <ha-entity-picker
             id="temperature_entity"
             .hass="${this._hass}"
@@ -761,18 +855,18 @@ class WindowGuardianCardEditor extends HTMLElement {
             .includeDomains="${['sensor']}"
             allow-custom-entity
           ></ha-entity-picker>
-          <div class="helper">Per protezione antigelo</div>
+          <div class="helper">For frost protection</div>
         </div>
 
         <div style="padding: 8px 0;">
-          <label class="label">Soglia temperatura (°C)</label>
+          <label class="label">Temperature threshold (°C)</label>
           <ha-textfield
             id="temperature_threshold"
             type="number"
             step="0.5"
             .value="${this._config.temperature_threshold || ''}"
           ></ha-textfield>
-          <div class="helper">Alert se aperto sotto questa temperatura</div>
+          <div class="helper">Alert if open below this temperature</div>
         </div>
       </div>
     `;
@@ -796,7 +890,7 @@ class WindowGuardianCardEditor extends HTMLElement {
     const addButton = document.createElement('mwc-button');
     addButton.id = 'add-entity';
     addButton.style.marginTop = '8px';
-    addButton.innerHTML = '<ha-icon icon="mdi:plus" slot="icon"></ha-icon>Aggiungi entità';
+    addButton.innerHTML = '<ha-icon icon="mdi:plus" slot="icon"></ha-icon>Add entity';
     
     addButton.addEventListener('click', () => {
       this._addNewEntity();
@@ -913,11 +1007,11 @@ class WindowGuardianCardEditor extends HTMLElement {
       <div class="notice">
         <div class="notice-title">
           <ha-icon icon="mdi:information-outline"></ha-icon>
-          Editor visuale non supportato
+          Visual editor not supported
         </div>
         <div class="notice-text">
-          L'editor visuale non è disponibile per questo tipo di elemento.
-          È ancora possibile modificare la configurazione utilizzando YAML.
+          The visual editor is not available for this configuration.
+          You can still edit using YAML mode.
         </div>
       </div>
     `;
@@ -1023,7 +1117,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "window-guardian-card",
   name: "Window Guardian Card",
-  description: "Monitoraggio porte/finestre con protezione antigelo",
+  description: "Monitor doors and windows with frost protection",
   preview: true,
   documentationURL: "https://github.com/MattiaSaiko/lovelace-window-guardian-card"
 });
