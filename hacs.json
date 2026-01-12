@@ -1,5 +1,6 @@
 {
   "name": "Window Guardian Card",
+  "content_in_root": false,
   "filename": "window-guardian-card.js",
   "render_readme": true,
   "country": ["IT", "EN"],
