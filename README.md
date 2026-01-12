@@ -134,3 +134,18 @@ The card supports both a simple configuration and a customised configuration so 
 | `icon_color` | string | Icon colour (hex or CSS name) |
 | `battery_entity` | string | Battery sensor specific to the entity |
 
+## ☕ Support
+
+If you enjoy using Window Guardian Card and want to support its development, you can:
+
+<div align="center">
+
+### Donate via PayPal 💙
+
+[![PayPal](https://img.shields.io/badge/Donate-PayPal-00457C.svg?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/Saikoadv)
+
+</div>
+
+Your support helps me dedicate more time to improving this card and creating new features for the Home Assistant community. 
+
+Thank you! 🙏
