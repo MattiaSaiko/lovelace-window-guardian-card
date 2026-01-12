@@ -1,0 +1,19 @@
+{
+  "common": {
+    "no_entities": "Seleziona entità per iniziare"
+  },
+  "card": {
+    "subtitle_all_closed": "Tutte chiuse",
+    "subtitle_open_singular": "1 apertura rilevata",
+    "subtitle_open_plural": "aperture rilevate",
+    "temperature_alert": "⚠️ Protezione antigelo",
+    "temperature_banner_prefix": "🌡️ Apertura con temperatura esterna:",
+    "chip_open": "Aperto",
+    "chip_closed": "Chiuso",
+    "time_now": "Ora",
+    "time_minutes_ago": "m fa",
+    "time_hours_ago": "h fa",
+    "time_yesterday": "Ieri",
+    "time_days_ago": "gg fa"
+  }
+}
