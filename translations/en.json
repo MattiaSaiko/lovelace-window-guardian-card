@@ -1,0 +1,19 @@
+{
+  "common": {
+    "no_entities": "Select entities to start"
+  },
+  "card": {
+    "subtitle_all_closed": "All closed",
+    "subtitle_open_singular": "1 opening detected",
+    "subtitle_open_plural": "openings detected",
+    "temperature_alert": "⚠️ Frost protection",
+    "temperature_banner_prefix": "🌡️ Open with outside temperature:",
+    "chip_open": "Open",
+    "chip_closed": "Closed",
+    "time_now": "Now",
+    "time_minutes_ago": "m ago",
+    "time_hours_ago": "h ago",
+    "time_yesterday": "Yesterday",
+    "time_days_ago": "d ago"
+  }
+}
