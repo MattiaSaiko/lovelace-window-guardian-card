@@ -9,7 +9,7 @@ class WindowGuardianCard extends HTMLElement {
     
     try {
       const response = await fetch(
-        `/hacsfiles/lovelace-window-guardian-card/translations/${langCode}.json`
+        `/local/community/lovelace-window-guardian-card/translations/${langCode}.json`
       );
       
       if (response.ok) {
@@ -19,7 +19,7 @@ class WindowGuardianCard extends HTMLElement {
       console.warn(`Window Guardian Card: Translation file for '${langCode}' not found, trying English fallback`);
       
       const fallbackResponse = await fetch(
-        `/hacsfiles/lovelace-window-guardian-card/translations/en.json`
+        `/local/community/lovelace-window-guardian-card/translations/en.json`
       );
       
       if (fallbackResponse.ok) {
