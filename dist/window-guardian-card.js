@@ -6,29 +6,29 @@ class WindowGuardianCard extends HTMLElement {
 
   async loadTranslations(lang) {
     const langCode = lang ? lang.split('-')[0] : 'en';
-    
+
     try {
       const response = await fetch(
         `/local/community/lovelace-window-guardian-card/translations/${langCode}.json`
       );
-      
+
       if (response.ok) {
         return await response.json();
       }
-      
+
       console.warn(`Window Guardian Card: Translation file for '${langCode}' not found, trying English fallback`);
-      
+
       const fallbackResponse = await fetch(
         `/local/community/lovelace-window-guardian-card/translations/en.json`
       );
-      
+
       if (fallbackResponse.ok) {
         return await fallbackResponse.json();
       }
-      
+
       console.error('Window Guardian Card: No translation files found');
       return this._getEmergencyTranslations();
-      
+
     } catch (error) {
       console.error('Window Guardian Card: Error loading translations', error);
       return this._getEmergencyTranslations();
@@ -81,7 +81,18 @@ class WindowGuardianCard extends HTMLElement {
         if (e && typeof e === 'object' && e.entity) return true;
         return false;
       })
-      .map(e => typeof e === 'string' ? { entity: e } : e);
+      .map(e => {
+        if (typeof e === 'string') {
+          return { 
+            entity: e,
+            tap_action: config.tap_action || 'more-info'
+          };
+        }
+        return {
+          ...e,
+          tap_action: e.tap_action || config.tap_action || 'more-info'
+        };
+      });
 
     this._config = {
       title: config.title ?? "Openings",
@@ -137,24 +148,24 @@ class WindowGuardianCard extends HTMLElement {
     if (!this._config.temperature_entity || !this._config.temperature_threshold) {
       return false;
     }
-    
+
     const tempEntity = this._hass.states[this._config.temperature_entity];
     if (!tempEntity || tempEntity.state === 'unknown' || tempEntity.state === 'unavailable') {
       return false;
     }
-    
+
     const currentTemp = parseFloat(tempEntity.state);
     return !isNaN(currentTemp) && currentTemp <= this._config.temperature_threshold;
   }
 
   _getCurrentTemperature() {
     if (!this._config.temperature_entity) return null;
-    
+
     const tempEntity = this._hass.states[this._config.temperature_entity];
     if (!tempEntity || tempEntity.state === 'unknown' || tempEntity.state === 'unavailable') {
       return null;
     }
-    
+
     return parseFloat(tempEntity.state);
   }
 
@@ -172,27 +183,82 @@ class WindowGuardianCard extends HTMLElement {
     return filtered.filter((p) => p.state.state === "on").length;
   }
 
-  _handleTap() {
+  _handleCardTap() {
     const action = this._config.tap_action;
     if (!action || !this._hass || !this._config.entities || this._config.entities.length === 0) return;
 
     if (action === "more-info") {
       const first = this._config.entities[0].entity;
-      const event = new Event("hass-more-info", {
-        bubbles: true,
-        composed: true,
-      });
-      event.detail = { entityId: first };
-      this.dispatchEvent(event);
+      this._showMoreInfo(first);
     } else if (action === "navigate" && this._config.tap_action_path) {
-      history.pushState(null, "", this._config.tap_action_path);
-      const navEvent = new Event("location-changed", {
-        bubbles: true,
-        composed: true,
-      });
-      navEvent.detail = { replace: false };
-      window.dispatchEvent(navEvent);
+      this._navigate(this._config.tap_action_path);
     }
+  }
+
+  _handleEntityTap(event, entityConf) {
+    event.stopPropagation();
+
+    const tapAction = entityConf.tap_action || 'more-info';
+
+    if (typeof tapAction === 'string') {
+      if (tapAction === 'more-info') {
+        this._showMoreInfo(entityConf.entity);
+      } else if (tapAction === 'toggle') {
+        this._toggleEntity(entityConf.entity);
+      }
+    } else if (typeof tapAction === 'object') {
+      const action = tapAction.action || 'more-info';
+
+      switch (action) {
+        case 'more-info':
+          this._showMoreInfo(entityConf.entity);
+          break;
+        case 'toggle':
+          this._toggleEntity(entityConf.entity);
+          break;
+        case 'navigate':
+          this._navigate(tapAction.navigation_path);
+          break;
+        case 'call-service':
+          this._callService(tapAction);
+          break;
+        default:
+          this._showMoreInfo(entityConf.entity);
+      }
+    }
+  }
+
+  _showMoreInfo(entityId) {
+    const event = new Event('hass-more-info', {
+      bubbles: true,
+      composed: true,
+    });
+    event.detail = { entityId: entityId };
+    this.dispatchEvent(event);
+  }
+
+  _toggleEntity(entityId) {
+    this._hass.callService('homeassistant', 'toggle', {
+      entity_id: entityId
+    });
+  }
+
+  _navigate(path) {
+    if (!path) return;
+    history.pushState(null, "", path);
+    const navEvent = new Event("location-changed", {
+      bubbles: true,
+      composed: true,
+    });
+    navEvent.detail = { replace: false };
+    window.dispatchEvent(navEvent);
+  }
+
+  _callService(actionConfig) {
+    if (!actionConfig.service) return;
+
+    const [domain, service] = actionConfig.service.split('.');
+    this._hass.callService(domain, service, actionConfig.service_data || {});
   }
 
   _getBatteryLevel(entity, cfg) {
@@ -292,7 +358,7 @@ class WindowGuardianCard extends HTMLElement {
     if (diffHours < 24) return `${diffHours}${this.localize('card.time_hours_ago', 'h ago')}`;
     if (diffDays === 1) return this.localize('card.time_yesterday', 'Yesterday');
     if (diffDays < 7) return `${diffDays}${this.localize('card.time_days_ago', 'd ago')}`;
-    
+
     const locale = this._hass?.language || 'en';
     return changed.toLocaleDateString(locale, { day: "2-digit", month: "2-digit" });
   }
@@ -341,7 +407,7 @@ class WindowGuardianCard extends HTMLElement {
     const openCount = openEntities.length;
     const allClosed = openCount === 0;
     const attention = openCount >= config.attention_threshold;
-    
+
     const isColdOutside = this._isColdOutside();
     const currentTemp = this._getCurrentTemperature();
     const hasTemperatureAlert = openCount > 0 && isColdOutside;
@@ -350,7 +416,7 @@ class WindowGuardianCard extends HTMLElement {
     if (attention || hasTemperatureAlert) card.classList.add("attention");
     if (config.compact) card.classList.add("compact");
     if (hasTemperatureAlert) card.classList.add("temperature-alert");
-    card.addEventListener("click", () => this._handleTap());
+    card.addEventListener("click", () => this._handleCardTap());
 
     const temperatureBannerText = `${this.localize('card.temperature_banner_prefix', '🌡️ Open with outside temperature:')} ${currentTemp}°C`;
 
@@ -455,6 +521,11 @@ class WindowGuardianCard extends HTMLElement {
           padding: 8px 0;
           font-size: 0.9rem;
           border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.05));
+          cursor: pointer;
+          transition: background 0.2s ease;
+        }
+        .entity-row:hover {
+          background: var(--secondary-background-color);
         }
         .entity-row:last-child { border-bottom: none; }
         .entity-left {
@@ -523,14 +594,14 @@ class WindowGuardianCard extends HTMLElement {
           color: var(--success-color, #4caf50);
         }
       </style>
-      
+
       ${hasTemperatureAlert ? `
         <div class="temperature-banner">
           <ha-icon icon="mdi:thermometer-alert"></ha-icon>
           <span>${temperatureBannerText}</span>
         </div>
       ` : ''}
-      
+
       <div class="header">
         <div class="title">${config.title}</div>
         <div class="icon-wrapper ${attention || hasTemperatureAlert ? "attention" : ""} ${hasTemperatureAlert ? "temperature-alert" : ""}">
@@ -544,7 +615,7 @@ class WindowGuardianCard extends HTMLElement {
           }"></ha-icon>
         </div>
       </div>
-      
+
       <div class="main">
         <div>
           <div class="count">${openCount}</div>
@@ -556,7 +627,7 @@ class WindowGuardianCard extends HTMLElement {
           </div>
         </div>
       </div>
-      
+
       ${config.compact || !config.show_list ? "" : `
         <div class="list">
           ${openEntities.map((p) => {
@@ -569,7 +640,7 @@ class WindowGuardianCard extends HTMLElement {
             const lastChanged = config.show_last_changed ? this._formatLastChanged(p.state.last_changed) : null;
 
             return `
-            <div class="entity-row">
+            <div class="entity-row" data-entity="${p.cfg.entity}">
               <div class="entity-left">
                 <div class="entity-icon">
                   <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
@@ -604,7 +675,7 @@ class WindowGuardianCard extends HTMLElement {
             const lastChanged = config.show_last_changed ? this._formatLastChanged(p.state.last_changed) : null;
 
             return `
-            <div class="entity-row">
+            <div class="entity-row" data-entity="${p.cfg.entity}">
               <div class="entity-left">
                 <div class="entity-icon">
                   <ha-icon icon="${icon}" style="color:${iconColor};"></ha-icon>
@@ -632,6 +703,18 @@ class WindowGuardianCard extends HTMLElement {
         </div>
       `}
     `;
+
+    const entityRows = card.querySelectorAll('.entity-row');
+    entityRows.forEach(row => {
+      const entityId = row.getAttribute('data-entity');
+      const entityConf = config.entities.find(e => e.entity === entityId);
+
+      if (entityConf) {
+        row.addEventListener('click', (e) => {
+          this._handleEntityTap(e, entityConf);
+        });
+      }
+    });
 
     this.shadowRoot.innerHTML = "";
     this.shadowRoot.appendChild(card);
@@ -691,10 +774,10 @@ class WindowGuardianCard extends HTMLElement {
 
   static hasAdvancedConfig(config) {
     if (!config.entities || !Array.isArray(config.entities)) return false;
-    
+
     return config.entities.some(e => {
       if (typeof e === 'string') return false;
-      return e.name || e.icon || e.icon_color || e.battery_entity;
+      return e.name || e.icon || e.icon_color || e.battery_entity || e.tap_action;
     });
   }
 
@@ -723,7 +806,7 @@ class WindowGuardianCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { ...WindowGuardianCard.getStubConfig(), ...config };
     this._hasAdvancedConfig = WindowGuardianCard.hasAdvancedConfig(config);
-    
+
     if (this._rendered) {
       this._updateValues();
     } else if (this._hass) {
@@ -734,7 +817,7 @@ class WindowGuardianCardEditor extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    
+
     if (this._config && !this._rendered) {
       this._render();
       this._rendered = true;
@@ -880,32 +963,32 @@ class WindowGuardianCardEditor extends HTMLElement {
     if (!container || !this._hass) return;
 
     const entities = this._config.entities || [];
-    
+
     container.innerHTML = '';
-    
+
     entities.forEach((entity, index) => {
       this._addEntityRow(container, entity, index);
     });
-    
+
     const addButton = document.createElement('mwc-button');
     addButton.id = 'add-entity';
     addButton.style.marginTop = '8px';
     addButton.innerHTML = '<ha-icon icon="mdi:plus" slot="icon"></ha-icon>Add entity';
-    
+
     addButton.addEventListener('click', () => {
       this._addNewEntity();
     });
-    
+
     container.appendChild(addButton);
   }
 
   _addEntityRow(container, entity, index) {
     const entityId = typeof entity === 'string' ? entity : entity.entity;
-    
+
     const row = document.createElement('div');
     row.className = 'entity-row';
     row.setAttribute('data-index', index);
-    
+
     const picker = document.createElement('ha-entity-picker');
     picker.className = 'entity-picker';
     picker.setAttribute('data-index', index);
@@ -914,7 +997,7 @@ class WindowGuardianCardEditor extends HTMLElement {
     picker.includeDomains = ['binary_sensor'];
     picker.setAttribute('allow-custom-entity', '');
     picker.style.flex = '1';
-    
+
     picker.addEventListener('value-changed', (e) => {
       const idx = parseInt(e.target.dataset.index);
       const newEntities = [...(this._config.entities || [])];
@@ -922,20 +1005,20 @@ class WindowGuardianCardEditor extends HTMLElement {
       this._config = { ...this._config, entities: newEntities };
       this._configChanged();
     });
-    
+
     const removeBtn = document.createElement('ha-icon-button');
     removeBtn.className = 'remove-entity';
     removeBtn.setAttribute('data-index', index);
     removeBtn.innerHTML = '<ha-icon icon="mdi:delete"></ha-icon>';
-    
+
     removeBtn.addEventListener('click', (e) => {
       const idx = parseInt(e.target.closest('.remove-entity').dataset.index);
       this._removeEntity(idx);
     });
-    
+
     row.appendChild(picker);
     row.appendChild(removeBtn);
-    
+
     const addButton = container.querySelector('#add-entity');
     if (addButton) {
       container.insertBefore(row, addButton);
@@ -947,29 +1030,29 @@ class WindowGuardianCardEditor extends HTMLElement {
   _addNewEntity() {
     const container = this.querySelector('#entities-container');
     if (!container) return;
-    
+
     const newEntities = [...(this._config.entities || []), ''];
     this._config = { ...this._config, entities: newEntities };
-    
+
     const newIndex = newEntities.length - 1;
     this._addEntityRow(container, '', newIndex);
-    
+
     this._configChanged();
   }
 
   _removeEntity(index) {
     const container = this.querySelector('#entities-container');
     if (!container) return;
-    
+
     const rows = container.querySelectorAll('.entity-row');
     if (rows[index]) {
       rows[index].remove();
     }
-    
+
     const newEntities = [...(this._config.entities || [])];
     newEntities.splice(index, 1);
     this._config = { ...this._config, entities: newEntities };
-    
+
     const remainingRows = container.querySelectorAll('.entity-row');
     remainingRows.forEach((row, idx) => {
       row.setAttribute('data-index', idx);
@@ -978,7 +1061,7 @@ class WindowGuardianCardEditor extends HTMLElement {
       if (picker) picker.setAttribute('data-index', idx);
       if (removeBtn) removeBtn.setAttribute('data-index', idx);
     });
-    
+
     this._configChanged();
   }
 
