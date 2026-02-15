@@ -8,6 +8,9 @@ Una card Lovelace per Home Assistant che mostra quante porte/finestre sono apert
 - HACS installato per una gestione semplice degli aggiornamenti (opzionale ma raccomandato).  
 - Dashboard Lovelace.
 
+### Installazione rapida:
+[![HACS Lovelace](https://img.shields.io/badge/HACS-Lovelace%20Card-blue.svg?logo=homeassistant)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MattiaSaiko&repository=lovelace-window-guardian-card&category=lovelace)
+
 ### Installazione tramite HACS (repository custom)
 1. Apri **HACS** in Home Assistant.  
 2. Vai su **Impostazioni HACS → Custom repositories**.  
@@ -74,6 +77,9 @@ A Lovelace card for Home Assistant that displays how many doors/windows are open
 - Home Assistant 2024.8.0 or higher.  
 - HACS installed for easy update management (optional but recommended).
 - Dashboard Lovelace.
+
+### Quick installation:
+[![HACS Lovelace](https://img.shields.io/badge/HACS-Lovelace%20Card-blue.svg?logo=homeassistant)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MattiaSaiko&repository=lovelace-window-guardian-card&category=lovelace)
 
 ### Installation via HACS (custom repository)
 1. Open **HACS** in Home Assistant.  
